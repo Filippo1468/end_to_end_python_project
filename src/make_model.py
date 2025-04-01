@@ -11,7 +11,7 @@ import sys
 sys.path.append(os.path.abspath('..'))  # Adds the parent directory to sys.path
 
 import logging
-
+import pickle
 
 def load_data():
     """Loads data from the SQLite database."""
@@ -24,7 +24,7 @@ def load_data():
 
 def train_model(grid_search=False):
     """Trains a Random Forest model with GridSearchCV and saves evaluation metrics to CSV."""
-    df = load_data()
+    df = load_data().head(100)
 
     # Save original indices before vectorization
     df_indices = df.index
@@ -34,12 +34,16 @@ def train_model(grid_search=False):
     X = vectorizer.fit_transform(df['cleaned_text'])
     y = df['sentiment']
 
+    with open(f"{config.MODELS_PATH}vectorizer.pickle", "wb") as f:
+        pickle.dump(vectorizer, f)
+
     # Train-test split (preserve indices)
     X_train, X_test, y_train, y_test, train_idx, test_idx = train_test_split(
         X, y, df_indices, test_size=0.2, random_state=42
     )
-
+    logging.info('Training model...')
     if grid_search:
+        logging.info('Starting the gridsearch...')
         rf = RandomForestClassifier(random_state=42)
         param_grid = {
             'n_estimators': [50, 100, 200],
@@ -50,13 +54,17 @@ def train_model(grid_search=False):
         grid_search = GridSearchCV(rf, param_grid, cv=3, scoring='accuracy', n_jobs=-1, verbose=1)
         grid_search.fit(X_train, y_train)
 
-        best_model = grid_search.best_estimator_
-        y_pred = best_model.predict(X_test)
+        rf = grid_search.best_estimator_
+        y_pred = rf.predict(X_test)
     
     else:
         rf = RandomForestClassifier()
         rf.fit(X_train, y_train)
         y_pred = rf.predict(X_test)
+    
+    logging.info('Saving model...')
+    with open(os.path.join(config.MODELS_PATH, "random_forest.pickle"), "wb") as file:
+        pickle.dump(rf, file)
 
     # Create a DataFrame for the test set with predictions
     test_df = df.loc[test_idx].copy()  # Copy test set rows
